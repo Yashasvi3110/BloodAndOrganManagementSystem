@@ -70,6 +70,7 @@
             <button data-tab="donors" class="tab-button px-4 py-2 text-sm font-medium text-gray-600 border-b-2 border-transparent hover:border-gray-300 hover:text-gray-800 transition duration-150">Donors</button>
             <button data-tab="patients" class="tab-button px-4 py-2 text-sm font-medium text-gray-600 border-b-2 border-transparent hover:border-gray-300 hover:text-gray-800 transition duration-150">Patients</button>
             <button data-tab="operations" class="tab-button px-4 py-2 text-sm font-medium text-gray-600 border-b-2 border-transparent hover:border-gray-300 hover:text-gray-800 transition duration-150">Operations</button>
+            <button data-tab="reports" class="tab-button px-4 py-2 text-sm font-medium text-gray-600 border-b-2 border-transparent hover:border-gray-300 hover:text-gray-800 transition duration-150">Reports</button>
         </div>
 
         <!-- Tab Content -->
@@ -103,6 +104,34 @@
                         </h3>
                         <div id="organ-stock-table" class="overflow-x-auto rounded-lg border">
                             <p class="p-4 text-gray-500">Loading organ stock...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Reports Tab -->
+            <div id="reports-content" class="tab-content bg-white p-6 rounded-xl shadow-md">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4 border-b pb-2">Monthly Reports</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="p-4 bg-white rounded-lg border">
+                        <h3 class="text-lg font-medium mb-2">Generate Monthly Report</h3>
+                        <form id="generate-report-form" class="flex items-end space-x-3">
+                            <div>
+                                <label class="block text-sm text-gray-600">Month</label>
+                                <input type="number" id="report-month" min="1" max="12" placeholder="1-12" class="mt-1 p-2 border rounded-md w-32" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-600">Year</label>
+                                <input type="number" id="report-year" min="2000" placeholder="YYYY" class="mt-1 p-2 border rounded-md w-36" required>
+                            </div>
+                            <button type="submit" class="bg-accent text-white p-2 rounded-md font-semibold">Generate</button>
+                        </form>
+                    </div>
+
+                    <div class="p-4 bg-white rounded-lg border col-span-1 md:col-span-2">
+                        <h3 class="text-lg font-medium mb-2">Report Results</h3>
+                        <div id="monthly-report-container" class="overflow-x-auto rounded-lg border p-2">
+                            <p class="text-gray-500">No report generated yet.</p>
                         </div>
                     </div>
                 </div>
@@ -726,10 +755,8 @@
                     return;
                 }
 
-                // Use donor's blood group (do not trust manual selection)
-                const blood_group = donor_bg;
-
-                const result = await apiFetch('/api/donors/donate', 'POST', { donor_id, blood_group, component, units });
+                // Use donor's blood group (do not trust manual selection). Server will derive blood_group from Donor.
+                const result = await apiFetch('/api/donors/donate', 'POST', { donor_id, component, units });
                 if (result) {
                     showNotification(result.message);
                     form.reset();
@@ -745,18 +772,20 @@
                 const patientSelect = document.getElementById('blood-usage-patient-id');
                 const patientIdVal = patientSelect ? patientSelect.value : '';
                 const patient_id = patientIdVal ? parseInt(patientIdVal) : NaN;
-                const blood_group_usage = form.elements['blood-usage-blood-group'].value;
                 const component_usage = form.elements['blood-usage-component'].value;
                 const units_usage = parseInt(form.elements['blood-usage-units'].value);
 
                 const validPatient = patientSelect && Array.from(patientSelect.options).some(opt => opt.value === String(patient_id));
+                // Derive patient's blood group from the selected option (server will also derive)
+                const patientOpt = patientSelect ? patientSelect.options[patientSelect.selectedIndex] : null;
+                const patient_bg = patientOpt ? patientOpt.getAttribute('data-blood-group') : '';
 
-                if (!validPatient || isNaN(patient_id) || isNaN(units_usage) || patient_id <= 0 || units_usage <= 0 || !blood_group_usage || !component_usage) {
-                    showNotification("Invalid input for Blood Usage. Select a valid Patient and provide Units, Blood Group, and Component.", true);
+                if (!validPatient || isNaN(patient_id) || isNaN(units_usage) || patient_id <= 0 || units_usage <= 0 || !patient_bg || !component_usage) {
+                    showNotification("Invalid input for Blood Usage. Select a valid Patient (with defined blood group) and provide Units and Component.", true);
                     return;
                 }
 
-                const result = await apiFetch('/api/blood/use', 'POST', { patient_id, blood_group: blood_group_usage, component: component_usage, units: units_usage });
+                const result = await apiFetch('/api/blood/use', 'POST', { patient_id, component: component_usage, units: units_usage });
                 if (result) {
                     showNotification(result.message);
                     form.reset();
@@ -803,6 +832,38 @@
                     fetchStockData(); // Refresh stock list
                 }
             });
+
+            // Generate Monthly Report
+            const reportForm = document.getElementById('generate-report-form');
+            if (reportForm) {
+                reportForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const month = parseInt(document.getElementById('report-month').value);
+                    const year = parseInt(document.getElementById('report-year').value);
+
+                    if (isNaN(month) || month < 1 || month > 12 || isNaN(year) || year < 1) {
+                        showNotification('Please enter a valid month (1-12) and year.', true);
+                        return;
+                    }
+
+                    const res = await apiFetch('/api/reports/generate', 'POST', { month, year });
+                    if (!res) return;
+
+                    const container = document.getElementById('monthly-report-container');
+                    const rows = res.report || [];
+                    if (!rows.length) {
+                        container.innerHTML = '<p class="text-gray-500">No entries in Monthly_Report for the selected month/year.</p>';
+                        return;
+                    }
+
+                    let html = '<table class="data-table"><thead><tr><th>Category</th><th>Item</th><th>Component</th><th>Total Units</th></tr></thead><tbody>';
+                    rows.forEach(r => {
+                        html += `<tr><td>${r.category}</td><td>${r.item_type}</td><td>${r.component || '-'}</td><td>${r.total_units}</td></tr>`;
+                    });
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                });
+            }
 
             // Record Organ Usage
             document.getElementById('organ-usage-form').addEventListener('submit', async (e) => {

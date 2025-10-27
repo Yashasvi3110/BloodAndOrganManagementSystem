@@ -80,21 +80,17 @@ CREATE TABLE OrganStock (
   last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- BLOOD DONATION LOG TABLE
 CREATE TABLE BloodDonationLog (
   log_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   donor_id NUMBER NOT NULL,
-  blood_group VARCHAR2(3) NOT NULL,
   component VARCHAR2(20) DEFAULT 'Whole' NOT NULL,
   units_donated NUMBER(5) NOT NULL,
   donation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   CONSTRAINT fk_bdl_donor FOREIGN KEY (donor_id) REFERENCES Donor(donor_id) ON DELETE CASCADE
 );
 
--- BLOOD USAGE LOG TABLE
 CREATE TABLE BloodUsageLog (
   usage_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  blood_group VARCHAR2(3) NOT NULL,
   component VARCHAR2(20) NOT NULL,
   units_used NUMBER(5) NOT NULL,
   patient_id NUMBER NOT NULL,
@@ -144,17 +140,21 @@ CREATE OR REPLACE TRIGGER TRG_UPDATE_BLOOD_STOCK
 AFTER INSERT ON BloodDonationLog
 FOR EACH ROW
 BEGIN
-  -- Use MERGE for UPSERT: updates existing stock or inserts new if component/group is new.
-  MERGE INTO BloodStock B
-  -- Match on both blood_group and component
-  USING DUAL ON (B.blood_group = :NEW.blood_group AND B.component = :NEW.component)
-  WHEN MATCHED THEN
-    UPDATE SET B.units_available = B.units_available + :NEW.units_donated,
-         B.last_updated = SYSDATE
-  WHEN NOT MATCHED THEN
-    -- Insert the new blood type/component combination
-    INSERT (blood_group, component, units_available)
-    VALUES (:NEW.blood_group, :NEW.component, :NEW.units_donated);
+  -- Derive donor's blood group from Donor table, then MERGE into BloodStock (UPSERT)
+  DECLARE
+    v_bg VARCHAR2(3);
+  BEGIN
+    SELECT blood_group INTO v_bg FROM Donor WHERE donor_id = :NEW.donor_id;
+
+    MERGE INTO BloodStock B
+    USING DUAL ON (B.blood_group = v_bg AND B.component = :NEW.component)
+    WHEN MATCHED THEN
+      UPDATE SET B.units_available = B.units_available + :NEW.units_donated,
+           B.last_updated = SYSDATE
+    WHEN NOT MATCHED THEN
+      INSERT (blood_group, component, units_available)
+      VALUES (v_bg, :NEW.component, :NEW.units_donated);
+  END;
 END;
 /
 
@@ -164,24 +164,33 @@ AFTER INSERT ON BloodUsageLog
 FOR EACH ROW
 DECLARE
   v_current_stock NUMBER;
+  v_bg VARCHAR2(3);
 BEGIN
+  -- Derive the patient's blood group, then check and decrement corresponding stock
+  BEGIN
+    SELECT blood_group INTO v_bg FROM Patient WHERE patient_id = :NEW.patient_id;
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      RAISE_APPLICATION_ERROR(-20002, 'Patient ID ' || :NEW.patient_id || ' not found.');
+  END;
+
   -- Check current stock level and lock the row for the transaction
   SELECT units_available INTO v_current_stock
   FROM BloodStock
-  WHERE blood_group = :NEW.blood_group AND component = :NEW.component
+  WHERE blood_group = v_bg AND component = :NEW.component
   FOR UPDATE OF units_available NOWAIT;
 
   -- Check if enough stock is available before decrementing
   IF v_current_stock < :NEW.units_used THEN
     -- Raise an application error to prevent the transaction (and rollback the log insertion)
-    RAISE_APPLICATION_ERROR(-20001, 'Insufficient stock available for ' || :NEW.blood_group || ' ' || :NEW.component || '. Requested: ' || :NEW.units_used || ', Available: ' || v_current_stock);
+    RAISE_APPLICATION_ERROR(-20001, 'Insufficient stock available for ' || v_bg || ' ' || :NEW.component || '. Requested: ' || :NEW.units_used || ', Available: ' || v_current_stock);
   END IF;
 
   -- Decrement the stock
   UPDATE BloodStock
   SET units_available = units_available - :NEW.units_used,
     last_updated = SYSDATE
-  WHERE blood_group = :NEW.blood_group AND component = :NEW.component;
+  WHERE blood_group = v_bg AND component = :NEW.component;
 END;
 /
 
@@ -246,16 +255,15 @@ WHERE units_available < critical_level;
 -- Procedure 1: Record a Blood Donation
 CREATE OR REPLACE PROCEDURE SP_RECORD_BLOOD_DONATION (
   p_donor_id   IN NUMBER,
-  p_blood_group    IN VARCHAR3,
   p_units_donated IN NUMBER,
-  p_component   IN VARCHAR20 DEFAULT 'Whole'
+  p_component   IN VARCHAR2 DEFAULT 'Whole'
 )
 AS
   v_units_donated NUMBER := p_units_donated;
 BEGIN
   -- 1. Insert into BloodDonationLog (Trigger TRG_UPDATE_BLOOD_STOCK handles stock update)
-  INSERT INTO BloodDonationLog (donor_id, blood_group, component, units_donated, donation_date)
-  VALUES (p_donor_id, p_blood_group, p_component, v_units_donated, SYSDATE);
+  INSERT INTO BloodDonationLog (donor_id, component, units_donated, donation_date)
+  VALUES (p_donor_id, p_component, v_units_donated, SYSDATE);
 
   COMMIT;
 EXCEPTION
@@ -268,15 +276,14 @@ END;
 -- Procedure 2: Record Blood Usage (Calls new log table, trigger handles stock)
 CREATE OR REPLACE PROCEDURE SP_RECORD_BLOOD_USAGE (
   p_patient_id  IN NUMBER,
-  p_blood_group    IN VARCHAR2,
   p_component   IN VARCHAR2,
   p_units_used  IN NUMBER
 )
 AS
 BEGIN
   -- Insert into BloodUsageLog. The trigger TRG_UPDATE_BLOOD_USAGE handles stock update and validation.
-  INSERT INTO BloodUsageLog (patient_id, blood_group, component, units_used, usage_date)
-  VALUES (p_patient_id, p_blood_group, p_component, p_units_used, SYSDATE);
+  INSERT INTO BloodUsageLog (patient_id, component, units_used, usage_date)
+  VALUES (p_patient_id, p_component, p_units_used, SYSDATE);
 
   COMMIT;
 EXCEPTION
@@ -331,44 +338,31 @@ BEGIN
   -- Clean up previous report for this month/year
   DELETE FROM Monthly_Report WHERE report_month = p_month AND report_year = p_year;
 
-  -- Blood DONATION report
-  FOR rec IN (
-    SELECT blood_group, component, SUM(units_donated) AS total_units
-    FROM BloodDonationLog
-    WHERE EXTRACT(MONTH FROM donation_date) = p_month
-    AND EXTRACT(YEAR FROM donation_date) = p_year
-    GROUP BY blood_group, component
-  )
-  LOOP
-    INSERT INTO Monthly_Report (category, report_month, report_year, item_type, component, total_units)
-    VALUES ('Blood Donation', p_month, p_year, rec.blood_group, rec.component, rec.total_units);
-  END LOOP;
+  -- Blood DONATION report: join to Donor to obtain blood_group (normalized schema)
+  INSERT INTO Monthly_Report (category, report_month, report_year, item_type, component, total_units)
+  SELECT 'Blood Donation', p_month, p_year, d.blood_group, bdl.component, SUM(bdl.units_donated)
+  FROM BloodDonationLog bdl
+  JOIN Donor d ON bdl.donor_id = d.donor_id
+  WHERE EXTRACT(MONTH FROM bdl.donation_date) = p_month
+    AND EXTRACT(YEAR FROM bdl.donation_date) = p_year
+  GROUP BY d.blood_group, bdl.component;
 
-  -- Blood USAGE report (NEW)
-  FOR rec IN (
-    SELECT blood_group, component, SUM(units_used) AS total_units
-    FROM BloodUsageLog
-    WHERE EXTRACT(MONTH FROM usage_date) = p_month
-    AND EXTRACT(YEAR FROM usage_date) = p_year
-    GROUP BY blood_group, component
-  )
-  LOOP
-    INSERT INTO Monthly_Report (category, report_month, report_year, item_type, component, total_units)
-    VALUES ('Blood Usage', p_month, p_year, rec.blood_group, rec.component, rec.total_units);
-  END LOOP;
+  -- Blood USAGE report: join to Patient to obtain blood_group
+  INSERT INTO Monthly_Report (category, report_month, report_year, item_type, component, total_units)
+  SELECT 'Blood Usage', p_month, p_year, p.blood_group, bul.component, SUM(bul.units_used)
+  FROM BloodUsageLog bul
+  JOIN Patient p ON bul.patient_id = p.patient_id
+  WHERE EXTRACT(MONTH FROM bul.usage_date) = p_month
+    AND EXTRACT(YEAR FROM bul.usage_date) = p_year
+  GROUP BY p.blood_group, bul.component;
 
   -- Organ Donation report
-  FOR rec IN (
-    SELECT organ_name, COUNT(*) AS total_units
-    FROM OrganDonationLog
-    WHERE EXTRACT(MONTH FROM donation_date) = p_month
-    AND EXTRACT(YEAR FROM donation_date) = p_year
-    GROUP BY organ_name
-  )
-  LOOP
-    INSERT INTO Monthly_Report (category, report_month, report_year, item_type, component, total_units)
-    VALUES ('Organ Donation', p_month, p_year, rec.organ_name, NULL, rec.total_units);
-  END LOOP;
+  INSERT INTO Monthly_Report (category, report_month, report_year, item_type, component, total_units)
+  SELECT 'Organ Donation', p_month, p_year, od.organ_name, NULL, COUNT(*)
+  FROM OrganDonationLog od
+  WHERE EXTRACT(MONTH FROM od.donation_date) = p_month
+    AND EXTRACT(YEAR FROM od.donation_date) = p_year
+  GROUP BY od.organ_name;
 
   COMMIT;
 EXCEPTION
@@ -412,19 +406,19 @@ INSERT INTO Donor (name, blood_group, contact_number, is_organ_donor) VALUES
 INSERT INTO Donor (name, blood_group, contact_number, is_organ_donor) VALUES
 ('New Donor Ken', 'B+', '5551234567', 0);
 
--- Seed an existing donation history for Jane and Mike (Triggers will update stock)
 INSERT INTO BloodDonationLog (donor_id, blood_group, component, units_donated, donation_date) VALUES
 (1, 'A+', 'Whole', 1, SYSDATE - 100);
-INSERT INTO BloodDonationLog (donor_id, blood_group, component, units_donated, donation_date) VALUES
-(2, 'O-', 'Whole', 1, SYSDATE - 10);
-INSERT INTO BloodDonationLog (donor_id, blood_group, component, units_donated, donation_date) VALUES
-(1, 'A+', 'Platelets', 1, SYSDATE - 30);
+INSERT INTO BloodDonationLog (donor_id, component, units_donated, donation_date) VALUES
+(1, 'Whole', 1, SYSDATE - 100);
+INSERT INTO BloodDonationLog (donor_id, component, units_donated, donation_date) VALUES
+(2, 'Whole', 1, SYSDATE - 10);
+INSERT INTO BloodDonationLog (donor_id, component, units_donated, donation_date) VALUES
+(1, 'Platelets', 1, SYSDATE - 30);
 
 -- Seed an organ donation log for Mike (Trigger will update stock)
 INSERT INTO OrganDonationLog (donor_id, organ_name, donation_date, status) VALUES
 (2, 'Kidney', SYSDATE - 50, 'Available');
 
--- Seed initial Patients
 INSERT INTO Patient (name, blood_group, hospital, contact_number, resource_needed, is_urgent) VALUES
 ('Patient Zoe', 'A+', 'City Hospital', '1112223334', 'Blood', 1);
 INSERT INTO Patient (name, blood_group, hospital, contact_number, resource_needed, is_urgent) VALUES

@@ -272,12 +272,12 @@ def register_patient():
 def record_blood_donation():
     data = request.json
     donor_id = data.get('donor_id')
-    blood_group = data.get('blood_group')
     component = data.get('component')
     units = data.get('units')
 
-    if not all([donor_id, blood_group, component, units]):
-        return jsonify({"error": "Missing required fields for blood donation."}), 400
+    # blood_group is no longer supplied; it will be derived from Donor (BCNF)
+    if not all([donor_id, component, units]):
+        return jsonify({"error": "Missing required fields for blood donation (donor_id, component, units)."}), 400
 
     conn = None
     try:
@@ -304,8 +304,8 @@ def record_blood_donation():
             pass
 
         # Call the stored procedure to handle the donation and stock update.
-        # NOTE: The TRG_DONOR_INTERVAL check has been removed per request.
-        cursor.callproc('SP_RECORD_BLOOD_DONATION', [donor_id, blood_group, units, component])
+        # Stored procedure signature updated to (p_donor_id, p_units_donated, p_component)
+        cursor.callproc('SP_RECORD_BLOOD_DONATION', [donor_id, units, component])
 
         conn.commit()
         return jsonify({"message": f"Blood donation recorded successfully for Donor ID {donor_id}."})
@@ -329,12 +329,12 @@ def record_blood_donation():
 def record_blood_usage():
     data = request.json
     patient_id = data.get('patient_id')
-    blood_group = data.get('blood_group')
     component = data.get('component')
     units = data.get('units')
 
-    if not all([patient_id, blood_group, component, units]):
-        return jsonify({"error": "Missing required fields for blood usage."}), 400
+    # blood_group is no longer supplied; it will be derived from Patient (BCNF)
+    if not all([patient_id, component, units]):
+        return jsonify({"error": "Missing required fields for blood usage (patient_id, component, units)."}), 400
 
     conn = None
     try:
@@ -342,7 +342,8 @@ def record_blood_usage():
         cursor = conn.cursor()
 
         # Call the stored procedure to handle the usage and stock decrement.
-        cursor.callproc('SP_RECORD_BLOOD_USAGE', [patient_id, blood_group, component, units])
+        # Stored procedure signature updated to (p_patient_id, p_component, p_units_used)
+        cursor.callproc('SP_RECORD_BLOOD_USAGE', [patient_id, component, units])
 
         conn.commit()
         return jsonify({"message": f"Blood usage recorded successfully for Patient ID {patient_id}."})
@@ -468,6 +469,74 @@ def record_organ_usage():
         if conn:
             conn.rollback()
         return jsonify({"error": f"Failed to record organ usage: {e}"}), 400
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/reports/generate', methods=['POST'])
+def generate_monthly_report():
+    """Calls the stored procedure SP_GENERATE_MONTHLY_REPORT and returns the report rows."""
+    data = request.json or {}
+    month = data.get('month')
+    year = data.get('year')
+
+    if not (isinstance(month, int) and 1 <= month <= 12 and isinstance(year, int) and year > 0):
+        return jsonify({"error": "Invalid month/year. Month must be 1-12 and year a positive integer."}), 400
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Call stored procedure to generate the report
+        cursor.callproc('SP_GENERATE_MONTHLY_REPORT', [month, year])
+
+        # Fetch the results from Monthly_Report
+        cursor.execute("SELECT report_id, category, report_month, report_year, item_type, component, total_units FROM Monthly_Report WHERE report_month = :m AND report_year = :y ORDER BY category, item_type", {'m': month, 'y': year})
+        rows = cursor.fetchall()
+        report = [row_to_dict(cursor, r) for r in rows]
+
+        return jsonify({"report": report})
+
+    except ConnectionError:
+        return jsonify({"error": "Database connection failed."}), 500
+    except oracledb.DatabaseError as db_error:
+        error, = db_error.args
+        if conn:
+            conn.rollback()
+        return jsonify({"error": f"Failed to generate report: {error.message}"}), 400
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return jsonify({"error": f"Unexpected error generating report: {e}"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/db/proc_errors', methods=['GET'])
+def get_proc_errors():
+    """Return compilation status and errors for a given procedure name (query param 'name')."""
+    proc_name = request.args.get('name', 'SP_GENERATE_MONTHLY_REPORT').upper()
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Check object status
+        cursor.execute("SELECT object_name, status, object_type FROM user_objects WHERE object_name = :n", {'n': proc_name})
+        obj = cursor.fetchone()
+        obj_info = row_to_dict(cursor, obj) if obj else None
+
+        # Fetch compilation errors if any
+        cursor.execute("SELECT line, position, text FROM user_errors WHERE name = :n ORDER BY sequence", {'n': proc_name})
+        err_rows = cursor.fetchall()
+        errors = [row_to_dict(cursor, r) for r in err_rows] if err_rows else []
+
+        return jsonify({'object': obj_info, 'errors': errors})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
     finally:
         if conn:
             conn.close()
