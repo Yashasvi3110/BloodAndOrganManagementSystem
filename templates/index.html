@@ -177,7 +177,10 @@
                     <div class="p-4 bg-secondary rounded-lg shadow">
                         <h3 class="text-xl font-medium text-primary mb-4">Record Blood Donation</h3>
                         <form id="blood-donation-form" class="space-y-4">
-                            <input type="number" id="donation-donor-id" placeholder="Donor ID" required min="1" class="w-full p-2 border border-gray-300 rounded-md">
+                            <label for="donation-donor-id" class="sr-only">Donor</label>
+                            <select id="donation-donor-id" required class="w-full p-2 border border-gray-300 rounded-md">
+                                <option value="" selected disabled>Select Donor</option>
+                            </select>
                             <select id="donation-blood-group" required class="w-full p-2 border border-gray-300 rounded-md">
                                 <option value="" disabled selected>Select Blood Group</option>
                                 <option value="A+">A+</option><option value="A-">A-</option>
@@ -200,7 +203,10 @@
                     <div class="p-4 bg-secondary rounded-lg shadow">
                         <h3 class="text-xl font-medium text-primary mb-4">Record Blood Usage</h3>
                         <form id="blood-usage-form" class="space-y-4">
-                            <input type="number" id="blood-usage-patient-id" name="patient-id" placeholder="Patient ID" required min="1" class="w-full p-2 border border-gray-300 rounded-md">
+                            <label for="blood-usage-patient-id" class="sr-only">Patient</label>
+                            <select id="blood-usage-patient-id" name="patient-id" required class="w-full p-2 border border-gray-300 rounded-md">
+                                <option value="" selected disabled>Select Patient</option>
+                            </select>
                             <select id="blood-usage-blood-group" name="blood-group" required class="w-full p-2 border border-gray-300 rounded-md">
                                 <option value="" disabled selected>Select Blood Group</option>
                                 <option value="A+">A+</option><option value="A-">A-</option>
@@ -237,7 +243,10 @@
                     <div class="p-4 bg-blue-100 rounded-lg shadow">
                         <h3 class="text-xl font-medium text-accent mb-4">Record Organ Usage</h3>
                         <form id="organ-usage-form" class="space-y-4">
-                            <input type="number" id="organ-usage-patient-id" name="organ-usage-patient-id" placeholder="Patient ID" required min="1" class="w-full p-2 border border-gray-300 rounded-md">
+                            <label for="organ-usage-patient-id" class="sr-only">Patient</label>
+                            <select id="organ-usage-patient-id" name="organ-usage-patient-id" required min="1" class="w-full p-2 border border-gray-300 rounded-md">
+                                <option value="" selected disabled>Select Patient</option>
+                            </select>
                             <input type="text" id="organ-name-use" name="organ-name" placeholder="Organ Name (e.g., Kidney)" required class="w-full p-2 border border-gray-300 rounded-md">
                             <button type="submit" class="w-full bg-accent text-white p-2 rounded-md font-semibold hover:bg-accent/90 transition duration-150 shadow-md">Record Usage</button>
                         </form>
@@ -404,6 +413,8 @@
             container.innerHTML = html;
             // Also populate the organ donor dropdown with only donors who opted in
             populateOrganDonorSelect(donors);
+            // Populate donation donor select (all donors)
+            populateDonationDonorSelect(donors);
         }
 
         // Populate the organ donor select with donors that have is_organ_donor === 1
@@ -432,6 +443,91 @@
             }
         }
 
+        // Populate donor select for blood donation (includes all donors)
+        function populateDonationDonorSelect(donors) {
+            const select = document.getElementById('donation-donor-id');
+            if (!select) return;
+
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'Select Donor';
+            placeholder.disabled = true;
+            placeholder.selected = true;
+
+            select.innerHTML = '';
+            select.appendChild(placeholder);
+
+            donors.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = String(d.donor_id);
+                opt.textContent = `${d.donor_id} — ${d.name} (${d.blood_group || 'N/A'})`;
+                select.appendChild(opt);
+            });
+
+            if (donors.length === 0) {
+                select.options[0].textContent = 'No donors available';
+                select.options[0].disabled = true;
+            }
+        }
+
+        // Populate patient selects for blood/organ operations
+        function populatePatientSelects(patients) {
+            const ids = ['blood-usage-patient-id', 'organ-usage-patient-id'];
+            ids.forEach(id => {
+                const select = document.getElementById(id);
+                if (!select) return;
+
+                const placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.textContent = 'Select Patient';
+                placeholder.disabled = true;
+                placeholder.selected = true;
+
+                select.innerHTML = '';
+                select.appendChild(placeholder);
+
+                patients.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = String(p.patient_id);
+                    // store blood_group on option for quick client-side lookup
+                    opt.setAttribute('data-blood-group', p.blood_group || '');
+                    opt.textContent = `${p.patient_id} — ${p.name} (${p.resource_needed || 'N/A'})`;
+                    select.appendChild(opt);
+                });
+
+                if (patients.length === 0) {
+                    select.options[0].textContent = 'No patients available';
+                    select.options[0].disabled = true;
+                }
+            });
+        }
+
+        // When a patient is chosen for blood usage, auto-fill the blood group select
+        (function attachPatientBloodGroupSync() {
+            const patientSelect = document.getElementById('blood-usage-patient-id');
+            if (!patientSelect) return;
+
+            patientSelect.addEventListener('change', () => {
+                const selected = patientSelect.options[patientSelect.selectedIndex];
+                const bg = selected ? selected.getAttribute('data-blood-group') : '';
+                const bgSelect = document.getElementById('blood-usage-blood-group');
+                if (bg && bgSelect) {
+                    // try to select the matching option if it exists
+                    const match = Array.from(bgSelect.options).find(o => o.value === bg);
+                    if (match) {
+                        match.selected = true;
+                    } else {
+                        // if not present, add it temporarily and select it
+                        const temp = document.createElement('option');
+                        temp.value = bg;
+                        temp.textContent = `${bg} (from patient)`;
+                        temp.selected = true;
+                        bgSelect.appendChild(temp);
+                    }
+                }
+            });
+        })();
+
         function renderPatients(patients) {
             const container = document.getElementById('patients-list');
             if (!patients || patients.length === 0) {
@@ -456,6 +552,8 @@
             
             html += '</tbody></table>';
             container.innerHTML = html;
+            // Populate patient selects used in forms
+            populatePatientSelects(patients);
         }
 
         // --- Setup Functions ---
@@ -540,19 +638,21 @@
                 e.preventDefault();
                 const form = e.target;
                 
-                const data = {
-                    donor_id: parseInt(form.elements[0].value),
-                    blood_group: form.elements[1].value,
-                    component: form.elements[2].value,
-                    units: parseInt(form.elements[3].value),
-                };
+                const donorSelect = document.getElementById('donation-donor-id');
+                const donorIdVal = donorSelect ? donorSelect.value : '';
+                const donor_id = donorIdVal ? parseInt(donorIdVal) : NaN;
+                const blood_group = form.elements[1].value;
+                const component = form.elements[2].value;
+                const units = parseInt(form.elements[3].value);
 
-                if (isNaN(data.donor_id) || isNaN(data.units) || data.donor_id <= 0 || data.units <= 0 || !data.blood_group || !data.component) {
-                    showNotification("Invalid input for Blood Donation. Check Donor ID, Units, Blood Group, and Component.", true);
+                const validDonor = donorSelect && Array.from(donorSelect.options).some(opt => opt.value === String(donor_id));
+
+                if (!validDonor || isNaN(units) || donor_id <= 0 || units <= 0 || !blood_group || !component) {
+                    showNotification("Invalid input for Blood Donation. Select a valid Donor and provide Units, Blood Group, and Component.", true);
                     return;
                 }
 
-                const result = await apiFetch('/api/donors/donate', 'POST', data);
+                const result = await apiFetch('/api/donors/donate', 'POST', { donor_id, blood_group, component, units });
                 if (result) {
                     showNotification(result.message);
                     form.reset();
@@ -565,19 +665,21 @@
                 e.preventDefault();
                 const form = e.target;
                 
-                const data = {
-                    patient_id: parseInt(form.elements['blood-usage-patient-id'].value),
-                    blood_group: form.elements['blood-usage-blood-group'].value,
-                    component: form.elements['blood-usage-component'].value,
-                    units: parseInt(form.elements['blood-usage-units'].value),
-                };
+                const patientSelect = document.getElementById('blood-usage-patient-id');
+                const patientIdVal = patientSelect ? patientSelect.value : '';
+                const patient_id = patientIdVal ? parseInt(patientIdVal) : NaN;
+                const blood_group_usage = form.elements['blood-usage-blood-group'].value;
+                const component_usage = form.elements['blood-usage-component'].value;
+                const units_usage = parseInt(form.elements['blood-usage-units'].value);
 
-                if (isNaN(data.patient_id) || isNaN(data.units) || data.patient_id <= 0 || data.units <= 0 || !data.blood_group || !data.component) {
-                    showNotification("Invalid input for Blood Usage. Check Patient ID, Units, Blood Group, and Component.", true);
+                const validPatient = patientSelect && Array.from(patientSelect.options).some(opt => opt.value === String(patient_id));
+
+                if (!validPatient || isNaN(patient_id) || isNaN(units_usage) || patient_id <= 0 || units_usage <= 0 || !blood_group_usage || !component_usage) {
+                    showNotification("Invalid input for Blood Usage. Select a valid Patient and provide Units, Blood Group, and Component.", true);
                     return;
                 }
 
-                const result = await apiFetch('/api/blood/use', 'POST', data);
+                const result = await apiFetch('/api/blood/use', 'POST', { patient_id, blood_group: blood_group_usage, component: component_usage, units: units_usage });
                 if (result) {
                     showNotification(result.message);
                     form.reset();
@@ -618,17 +720,19 @@
                 e.preventDefault();
                 const form = e.target;
                 
-                const data = {
-                    patient_id: parseInt(form.elements['organ-usage-patient-id'].value),
-                    organ_name: form.elements['organ-name'].value.trim(),
-                };
+                const patientSelectOrg = document.getElementById('organ-usage-patient-id');
+                const patientIdValOrg = patientSelectOrg ? patientSelectOrg.value : '';
+                const patient_id_org = patientIdValOrg ? parseInt(patientIdValOrg) : NaN;
+                const organ_name_use = form.elements['organ-name'].value.trim();
 
-                if (isNaN(data.patient_id) || data.patient_id <= 0 || !data.organ_name) {
-                    showNotification("Invalid Patient ID or missing Organ Name.", true);
+                const validPatientOrg = patientSelectOrg && Array.from(patientSelectOrg.options).some(opt => opt.value === String(patient_id_org));
+
+                if (!validPatientOrg || isNaN(patient_id_org) || patient_id_org <= 0 || !organ_name_use) {
+                    showNotification("Invalid Patient selection or missing Organ Name.", true);
                     return;
                 }
 
-                const result = await apiFetch('/api/organ/use', 'POST', data);
+                const result = await apiFetch('/api/organ/use', 'POST', { patient_id: patient_id_org, organ_name: organ_name_use });
                 if (result) {
                     showNotification(result.message);
                     form.reset();
