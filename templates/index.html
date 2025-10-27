@@ -223,7 +223,11 @@
                     <div class="p-4 bg-blue-100 rounded-lg shadow">
                         <h3 class="text-xl font-medium text-accent mb-4">Record Organ Donation</h3>
                         <form id="organ-donation-form" class="space-y-4">
-                            <input type="number" id="organ-donation-donor-id" placeholder="Donor ID" required min="1" class="w-full p-2 border border-gray-300 rounded-md">
+                            <label for="organ-donation-donor-id" class="sr-only">Donor</label>
+                            <select id="organ-donation-donor-id" required class="w-full p-2 border border-gray-300 rounded-md">
+                                <option value="" selected disabled>Select Donor (Organ Donors Only)</option>
+                                <!-- Options populated dynamically -->
+                            </select>
                             <input type="text" id="organ-name-donate" placeholder="Organ Name (e.g., Kidney)" required class="w-full p-2 border border-gray-300 rounded-md">
                             <button type="submit" class="w-full bg-accent text-white p-2 rounded-md font-semibold hover:bg-accent/90 transition duration-150 shadow-md">Record Organ Donation</button>
                         </form>
@@ -398,6 +402,34 @@
             
             html += '</tbody></table>';
             container.innerHTML = html;
+            // Also populate the organ donor dropdown with only donors who opted in
+            populateOrganDonorSelect(donors);
+        }
+
+        // Populate the organ donor select with donors that have is_organ_donor === 1
+        function populateOrganDonorSelect(donors) {
+            const select = document.getElementById('organ-donation-donor-id');
+            if (!select) return;
+
+            // Clear existing (except placeholder)
+            const placeholder = select.querySelector('option[value=""]');
+            select.innerHTML = '';
+            if (placeholder) select.appendChild(placeholder);
+
+            donors.forEach(d => {
+                if (d.is_organ_donor === 1) {
+                    const opt = document.createElement('option');
+                    opt.value = String(d.donor_id);
+                    opt.textContent = `${d.donor_id} — ${d.name} (${d.blood_group || 'N/A'})`;
+                    select.appendChild(opt);
+                }
+            });
+
+            // If no organ donors, ensure placeholder informs user
+            if (select.options.length === 1) {
+                select.options[0].textContent = 'No registered organ donors available';
+                select.options[0].disabled = true;
+            }
         }
 
         function renderPatients(patients) {
@@ -557,16 +589,21 @@
             document.getElementById('organ-donation-form').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const form = e.target;
-                
-                const data = {
-                    donor_id: parseInt(form.elements[0].value),
-                    organ_name: form.elements[1].value.trim(),
-                };
 
-                if (isNaN(data.donor_id) || data.donor_id <= 0 || !data.organ_name) {
-                    showNotification("Invalid Donor ID or missing Organ Name.", true);
+                const donorSelect = document.getElementById('organ-donation-donor-id');
+                const donorIdVal = donorSelect ? donorSelect.value : '';
+                const donor_id = donorIdVal ? parseInt(donorIdVal) : NaN;
+                const organ_name = document.getElementById('organ-name-donate').value.trim();
+
+                // Validate donor selection is from the dropdown (and not placeholder)
+                const validDonor = donorSelect && Array.from(donorSelect.options).some(opt => opt.value === String(donor_id));
+
+                if (!validDonor || isNaN(donor_id) || donor_id <= 0 || !organ_name) {
+                    showNotification('Please select a valid registered organ donor and specify the organ name.', true);
                     return;
                 }
+
+                const data = { donor_id, organ_name };
 
                 const result = await apiFetch('/api/organ/donate', 'POST', data);
                 if (result) {
