@@ -396,7 +396,7 @@
             }
 
             let html = '<table class="data-table">';
-            html += '<thead><tr><th>ID</th><th>Name</th><th>Blood Group</th><th>Contact</th><th>Organ Donor</th></tr></thead><tbody>';
+            html += '<thead><tr><th>ID</th><th>Name</th><th>Blood Group</th><th>Contact</th><th>Organ Donor</th><th>Actions</th></tr></thead><tbody>';
             
             donors.forEach(donor => {
                 const organStatus = donor.is_organ_donor === 1 ? '<span class="text-accent font-semibold">Yes</span>' : 'No';
@@ -406,6 +406,7 @@
                     <td>${donor.blood_group}</td>
                     <td>${donor.contact_number || 'N/A'}</td>
                     <td>${organStatus}</td>
+                    <td><button class="delete-donor-btn text-sm text-red-600 font-semibold" data-id="${donor.donor_id}">Delete</button></td>
                 </tr>`;
             });
             
@@ -460,6 +461,7 @@
             donors.forEach(d => {
                 const opt = document.createElement('option');
                 opt.value = String(d.donor_id);
+                opt.setAttribute('data-blood-group', d.blood_group || '');
                 opt.textContent = `${d.donor_id} — ${d.name} (${d.blood_group || 'N/A'})`;
                 select.appendChild(opt);
             });
@@ -469,6 +471,42 @@
                 select.options[0].disabled = true;
             }
         }
+
+        // Auto-fill donation blood group when donor selected and disable manual selection
+        (function attachDonationDonorSync() {
+            const donorSelect = document.getElementById('donation-donor-id');
+            const bgSelect = document.getElementById('donation-blood-group');
+            if (!donorSelect || !bgSelect) return;
+
+            donorSelect.addEventListener('change', () => {
+                const opt = donorSelect.options[donorSelect.selectedIndex];
+                const bg = opt ? opt.getAttribute('data-blood-group') : '';
+                if (bg) {
+                    // select matching option if exists
+                    const match = Array.from(bgSelect.options).find(o => o.value === bg);
+                    if (match) match.selected = true;
+                    else {
+                        const temp = document.createElement('option');
+                        temp.value = bg;
+                        temp.textContent = `${bg} (from donor)`;
+                        temp.selected = true;
+                        bgSelect.appendChild(temp);
+                    }
+                    bgSelect.disabled = true;
+                } else {
+                    bgSelect.disabled = false;
+                    if (bgSelect.options.length > 0) bgSelect.selectedIndex = 0;
+                }
+            });
+
+            // Ensure reset re-enables the select
+            const form = document.getElementById('blood-donation-form');
+            if (form) {
+                form.addEventListener('reset', () => {
+                    if (bgSelect) bgSelect.disabled = false;
+                });
+            }
+        })();
 
         // Populate patient selects for blood/organ operations
         function populatePatientSelects(patients) {
@@ -511,18 +549,27 @@
                 const selected = patientSelect.options[patientSelect.selectedIndex];
                 const bg = selected ? selected.getAttribute('data-blood-group') : '';
                 const bgSelect = document.getElementById('blood-usage-blood-group');
-                if (bg && bgSelect) {
-                    // try to select the matching option if it exists
-                    const match = Array.from(bgSelect.options).find(o => o.value === bg);
-                    if (match) {
-                        match.selected = true;
+                if (bgSelect) {
+                    if (bg) {
+                        // try to select the matching option if it exists
+                        const match = Array.from(bgSelect.options).find(o => o.value === bg);
+                        if (match) {
+                            match.selected = true;
+                        } else {
+                            // if not present, add it temporarily and select it
+                            const temp = document.createElement('option');
+                            temp.value = bg;
+                            temp.textContent = `${bg} (from patient)`;
+                            temp.selected = true;
+                            bgSelect.appendChild(temp);
+                        }
+                        // Disable manual change when patient defines blood group
+                        bgSelect.disabled = true;
                     } else {
-                        // if not present, add it temporarily and select it
-                        const temp = document.createElement('option');
-                        temp.value = bg;
-                        temp.textContent = `${bg} (from patient)`;
-                        temp.selected = true;
-                        bgSelect.appendChild(temp);
+                        // No patient selected - enable manual selection
+                        bgSelect.disabled = false;
+                        // Optionally reset to placeholder
+                        if (bgSelect.options.length > 0) bgSelect.selectedIndex = 0;
                     }
                 }
             });
@@ -536,7 +583,7 @@
             }
 
             let html = '<table class="data-table">';
-            html += '<thead><tr><th>ID</th><th>Name</th><th>Blood Group</th><th>Resource Needed</th><th>Hospital</th><th>Urgent</th></tr></thead><tbody>';
+            html += '<thead><tr><th>ID</th><th>Name</th><th>Blood Group</th><th>Resource Needed</th><th>Hospital</th><th>Urgent</th><th>Actions</th></tr></thead><tbody>';
             
             patients.forEach(patient => {
                 const urgency = patient.is_urgent === 1 ? '<span class="text-red-500 font-semibold">YES</span>' : 'No';
@@ -547,6 +594,7 @@
                     <td>${patient.resource_needed}</td>
                     <td>${patient.hospital}</td>
                     <td>${urgency}</td>
+                    <td><button class="delete-patient-btn text-sm text-red-600 font-semibold" data-id="${patient.patient_id}">Delete</button></td>
                 </tr>`;
             });
             
@@ -554,6 +602,31 @@
             container.innerHTML = html;
             // Populate patient selects used in forms
             populatePatientSelects(patients);
+            // Attach delete handlers for new buttons
+            document.querySelectorAll('.delete-donor-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const id = btn.getAttribute('data-id');
+                    if (!confirm(`Delete Donor ID ${id}? This action cannot be undone.`)) return;
+                    const res = await apiFetch(`/api/donors/${id}`, 'DELETE');
+                    if (res) {
+                        showNotification(res.message);
+                        fetchDonors();
+                        fetchStockData();
+                    }
+                });
+            });
+            document.querySelectorAll('.delete-patient-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const id = btn.getAttribute('data-id');
+                    if (!confirm(`Delete Patient ID ${id}? This action cannot be undone.`)) return;
+                    const res = await apiFetch(`/api/patients/${id}`, 'DELETE');
+                    if (res) {
+                        showNotification(res.message);
+                        fetchPatients();
+                        fetchStockData();
+                    }
+                });
+            });
         }
 
         // --- Setup Functions ---
@@ -641,16 +714,20 @@
                 const donorSelect = document.getElementById('donation-donor-id');
                 const donorIdVal = donorSelect ? donorSelect.value : '';
                 const donor_id = donorIdVal ? parseInt(donorIdVal) : NaN;
-                const blood_group = form.elements[1].value;
+                const donorOpt = donorSelect ? donorSelect.options[donorSelect.selectedIndex] : null;
+                const donor_bg = donorOpt ? donorOpt.getAttribute('data-blood-group') : '';
                 const component = form.elements[2].value;
                 const units = parseInt(form.elements[3].value);
 
                 const validDonor = donorSelect && Array.from(donorSelect.options).some(opt => opt.value === String(donor_id));
 
-                if (!validDonor || isNaN(units) || donor_id <= 0 || units <= 0 || !blood_group || !component) {
-                    showNotification("Invalid input for Blood Donation. Select a valid Donor and provide Units, Blood Group, and Component.", true);
+                if (!validDonor || isNaN(units) || donor_id <= 0 || units <= 0 || !donor_bg || !component) {
+                    showNotification("Invalid input for Blood Donation. Select a valid Donor (with a defined blood group) and provide Units and Component.", true);
                     return;
                 }
+
+                // Use donor's blood group (do not trust manual selection)
+                const blood_group = donor_bg;
 
                 const result = await apiFetch('/api/donors/donate', 'POST', { donor_id, blood_group, component, units });
                 if (result) {
@@ -683,9 +760,21 @@
                 if (result) {
                     showNotification(result.message);
                     form.reset();
+                    // Re-enable blood-group select after reset
+                    const bgSelect = document.getElementById('blood-usage-blood-group');
+                    if (bgSelect) bgSelect.disabled = false;
                     fetchStockData(); // Refresh stock list
                 }
             });
+
+            // Ensure reset re-enables blood-group select if user hits form.reset()
+            const bloodUsageForm = document.getElementById('blood-usage-form');
+            if (bloodUsageForm) {
+                bloodUsageForm.addEventListener('reset', () => {
+                    const bgSelect = document.getElementById('blood-usage-blood-group');
+                    if (bgSelect) bgSelect.disabled = false;
+                });
+            }
 
             // Record Organ Donation
             document.getElementById('organ-donation-form').addEventListener('submit', async (e) => {

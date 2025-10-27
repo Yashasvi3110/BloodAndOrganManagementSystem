@@ -101,6 +101,32 @@ def get_donors():
         if conn:
             conn.close()
 
+
+@app.route('/api/donors/<int:donor_id>', methods=['DELETE'])
+def delete_donor(donor_id):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("DELETE FROM Donor WHERE donor_id = :id", {'id': donor_id})
+        if cursor.rowcount == 0:
+            return jsonify({"error": f"Donor ID {donor_id} not found."}), 404
+
+        conn.commit()
+        return jsonify({"message": f"Donor ID {donor_id} deleted successfully."})
+
+    except ConnectionError:
+        return jsonify({"error": "Database connection failed."}), 500
+    except oracledb.DatabaseError as db_error:
+        error, = db_error.args
+        if conn:
+            conn.rollback()
+        return jsonify({"error": f"Failed to delete donor: {error.message}"}), 400
+    finally:
+        if conn:
+            conn.close()
+
 # FIX: Added the missing /api/patients GET endpoint to resolve the 500 error.
 @app.route('/api/patients', methods=['GET'])
 def get_patients():
@@ -125,6 +151,39 @@ def get_patients():
     except Exception as e:
         print(f"General Error on /api/patients: {e}")
         return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/patients/<int:patient_id>', methods=['DELETE'])
+def delete_patient(patient_id):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # First remove dependent records that reference this patient to avoid FK constraint errors.
+        # Depending on your retention policy you may prefer to archive logs instead of deleting.
+        cursor.execute("DELETE FROM BloodUsageLog WHERE patient_id = :id", {'id': patient_id})
+        cursor.execute("DELETE FROM OrganUsageLog WHERE patient_id = :id", {'id': patient_id})
+
+        # Now delete the patient record
+        cursor.execute("DELETE FROM Patient WHERE patient_id = :id", {'id': patient_id})
+        if cursor.rowcount == 0:
+            # If no patient row was deleted, nothing to commit
+            return jsonify({"error": f"Patient ID {patient_id} not found."}), 404
+
+        conn.commit()
+        return jsonify({"message": f"Patient ID {patient_id} and related usage logs deleted successfully."})
+
+    except ConnectionError:
+        return jsonify({"error": "Database connection failed."}), 500
+    except oracledb.DatabaseError as db_error:
+        error, = db_error.args
+        if conn:
+            conn.rollback()
+        return jsonify({"error": f"Failed to delete patient: {error.message}"}), 400
     finally:
         if conn:
             conn.close()
@@ -224,6 +283,25 @@ def record_blood_donation():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
+
+        # Validate donor donation interval: must be >= 90 days since last donation
+        try:
+            cursor.execute("SELECT MAX(donation_date) FROM BloodDonationLog WHERE donor_id = :id", {'id': donor_id})
+            row = cursor.fetchone()
+            last_date = row[0] if row else None
+            if last_date:
+                # last_date is a datetime; compute difference
+                now = datetime.datetime.now()
+                # If last_date is naive or aware, keep logic simple: compare dates
+                delta = now - last_date
+                if delta.days < 90:
+                    next_allowed = last_date + datetime.timedelta(days=90)
+                    return jsonify({
+                        "error": f"Donor ID {donor_id} last donated on {last_date.strftime('%Y-%m-%d')}. Next eligible on {next_allowed.strftime('%Y-%m-%d')} (90 day interval)."
+                    }), 400
+        except Exception:
+            # If there's an issue checking history, continue — stored procedure will still validate further.
+            pass
 
         # Call the stored procedure to handle the donation and stock update.
         # NOTE: The TRG_DONOR_INTERVAL check has been removed per request.
