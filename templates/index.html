@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blood & Organ Donation Management System</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'primary': '#DC2626', /* Red for Blood */
+                        'secondary': '#FEE2E2',
+                        'accent': '#1D4ED8', /* Blue for Organs/General */
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        .tab-content.active { display: block; }
+        .tab-content:not(.active) { display: none; }
+        /* Custom scrollbar for better look */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-thumb { background: #DC2626; border-radius: 4px; }
+        ::-webkit-scrollbar-track { background: #fee2f2; }
+
+        /* General table styling */
+        .data-table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        .data-table th, .data-table td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .data-table th {
+            background-color: #f3f4f6;
+            font-weight: 600;
+            color: #1f2937;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+        }
+        .data-table tr:hover {
+            background-color: #fef2f2;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+        <header class="text-center mb-10 p-6 bg-primary text-white rounded-xl shadow-lg">
+            <h1 class="text-4xl font-bold tracking-tight">Blood & Organ Donation Management System</h1>
+            <p class="text-lg mt-2 opacity-90">Centralized Resource Management Dashboard</p>
+        </header>
+
+        <!-- Notification Area -->
+        <div id="notification-area" class="fixed top-4 right-4 z-50 space-y-2">
+            <!-- Notifications will appear here -->
+        </div>
+
+        <!-- Tabs -->
+        <div class="flex flex-wrap border-b border-gray-200 mb-6" id="tabs-container">
+            <button data-tab="stock" class="tab-button active px-4 py-2 text-sm font-medium text-primary border-b-2 border-primary bg-white rounded-t-lg hover:bg-gray-100 transition duration-150">Stock</button>
+            <button data-tab="donors" class="tab-button px-4 py-2 text-sm font-medium text-gray-600 border-b-2 border-transparent hover:border-gray-300 hover:text-gray-800 transition duration-150">Donors</button>
+            <button data-tab="patients" class="tab-button px-4 py-2 text-sm font-medium text-gray-600 border-b-2 border-transparent hover:border-gray-300 hover:text-gray-800 transition duration-150">Patients</button>
+            <button data-tab="operations" class="tab-button px-4 py-2 text-sm font-medium text-gray-600 border-b-2 border-transparent hover:border-gray-300 hover:text-gray-800 transition duration-150">Operations</button>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="space-y-8">
+
+            <!-- Stock Tab -->
+            <div id="stock-content" class="tab-content active bg-white p-6 rounded-xl shadow-md">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4 border-b pb-2">Current Inventory Status</h2>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <!-- Blood Stock -->
+                    <div>
+                        <h3 class="text-xl font-medium text-primary mb-3 flex items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            Blood Stock
+                        </h3>
+                        <div id="blood-stock-table" class="overflow-x-auto rounded-lg border">
+                            <p class="p-4 text-gray-500">Loading blood stock...</p>
+                        </div>
+                    </div>
+
+                    <!-- Organ Stock -->
+                    <div>
+                        <h3 class="text-xl font-medium text-accent mb-3 flex items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7l4-4m0 0l4 4m-4-4v18" />
+                            </svg>
+                            Organ Stock
+                        </h3>
+                        <div id="organ-stock-table" class="overflow-x-auto rounded-lg border">
+                            <p class="p-4 text-gray-500">Loading organ stock...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Donors Tab -->
+            <div id="donors-content" class="tab-content bg-white p-6 rounded-xl shadow-md">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4 border-b pb-2">Registered Donors</h2>
+                <div id="donors-list" class="overflow-x-auto rounded-lg border">
+                    <p class="p-4 text-gray-500">Loading donors...</p>
+                </div>
+            </div>
+            
+            <!-- Patients Tab -->
+            <div id="patients-content" class="tab-content bg-white p-6 rounded-xl shadow-md">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4 border-b pb-2">Registered Patients / Recipients</h2>
+                <div id="patients-list" class="overflow-x-auto rounded-lg border">
+                    <p class="p-4 text-gray-500">Loading patients...</p>
+                </div>
+            </div>
+
+            <!-- Operations Tab -->
+            <div id="operations-content" class="tab-content bg-white p-6 rounded-xl shadow-md">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-6">Operations & Transactions</h2>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <!-- Donor Registration Form -->
+                    <div class="p-4 bg-secondary/50 rounded-lg shadow">
+                        <h3 class="text-xl font-medium text-primary mb-4">Register New Donor</h3>
+                        <form id="donor-registration-form" class="space-y-4">
+                            <input type="text" id="donor-name" placeholder="Donor Name" required class="w-full p-2 border border-gray-300 rounded-md">
+                            <select id="donor-blood-group" required class="w-full p-2 border border-gray-300 rounded-md">
+                                <option value="" disabled selected>Select Blood Group</option>
+                                <option value="A+">A+</option><option value="A-">A-</option>
+                                <option value="B+">B+</option><option value="B-">B-</option>
+                                <option value="AB+">AB+</option><option value="AB-">AB-</option>
+                                <option value="O+">O+</option><option value="O-">O-</option>
+                            </select>
+                            <input type="tel" id="donor-contact" placeholder="Contact Number" class="w-full p-2 border border-gray-300 rounded-md">
+                            <div class="flex items-center space-x-2">
+                                <input type="checkbox" id="is-organ-donor" class="h-4 w-4 text-accent border-gray-300 rounded focus:ring-accent">
+                                <label for="is-organ-donor" class="text-gray-700">Willing to be an Organ Donor</label>
+                            </div>
+                            <button type="submit" class="w-full bg-primary text-white p-2 rounded-md font-semibold hover:bg-primary/90 transition duration-150 shadow-md">Register Donor</button>
+                        </form>
+                    </div>
+
+                    <!-- Patient Registration Form -->
+                    <div class="p-4 bg-blue-100/50 rounded-lg shadow">
+                        <h3 class="text-xl font-medium text-accent mb-4">Register New Patient</h3>
+                        <form id="patient-registration-form" class="space-y-4">
+                            <input type="text" id="patient-name" name="patient-name" placeholder="Patient Name" required class="w-full p-2 border border-gray-300 rounded-md">
+                            <select id="patient-blood-group" name="patient-blood-group" required class="w-full p-2 border border-gray-300 rounded-md">
+                                <option value="" disabled selected>Select Blood Group</option>
+                                <option value="A+">A+</option><option value="A-">A-</option>
+                                <option value="B+">B+</option><option value="B-">B-</option>
+                                <option value="AB+">AB+</option><option value="AB-">AB-</option>
+                                <option value="O+">O+</option><option value="O-">O-</option>
+                            </select>
+                            <input type="text" id="patient-hospital" name="patient-hospital" placeholder="Hospital" required class="w-full p-2 border border-gray-300 rounded-md">
+                            <input type="tel" id="patient-contact" name="patient-contact" placeholder="Contact Number (Optional)" class="w-full p-2 border border-gray-300 rounded-md">
+                            <input type="text" id="resource-needed" name="resource-needed" placeholder="Resource Needed (e.g., Whole, Platelets, Kidney)" required class="w-full p-2 border border-gray-300 rounded-md">
+                            <div class="flex items-center space-x-2">
+                                <input type="checkbox" id="is-urgent" name="is-urgent" class="h-4 w-4 text-primary border-gray-300 rounded focus:ring-primary">
+                                <label for="is-urgent" class="text-gray-700">Urgent Requirement</label>
+                            </div>
+                            <button type="submit" class="w-full bg-accent text-white p-2 rounded-md font-semibold hover:bg-accent/90 transition duration-150 shadow-md">Register Patient</button>
+                        </form>
+                    </div>
+
+                    <!-- Record Blood Donation Form -->
+                    <div class="p-4 bg-secondary rounded-lg shadow">
+                        <h3 class="text-xl font-medium text-primary mb-4">Record Blood Donation</h3>
+                        <form id="blood-donation-form" class="space-y-4">
+                            <input type="number" id="donation-donor-id" placeholder="Donor ID" required min="1" class="w-full p-2 border border-gray-300 rounded-md">
+                            <select id="donation-blood-group" required class="w-full p-2 border border-gray-300 rounded-md">
+                                <option value="" disabled selected>Select Blood Group</option>
+                                <option value="A+">A+</option><option value="A-">A-</option>
+                                <option value="B+">B+</option><option value="B-">B-</option>
+                                <option value="AB+">AB+</option><option value="AB-">AB-</option>
+                                <option value="O+">O+</option><option value="O-">O-</option>
+                            </select>
+                            <select id="donation-component" required class="w-full p-2 border border-gray-300 rounded-md">
+                                <option value="" disabled selected>Select Component</option>
+                                <option value="Whole">Whole Blood</option>
+                                <option value="Platelets">Platelets</option>
+                                <option value="Plasma">Plasma</option>
+                            </select>
+                            <input type="number" id="donation-units" placeholder="Units Donated (e.g., 1)" required min="1" class="w-full p-2 border border-gray-300 rounded-md">
+                            <button type="submit" class="w-full bg-primary text-white p-2 rounded-md font-semibold hover:bg-primary/90 transition duration-150 shadow-md">Record Donation</button>
+                        </form>
+                    </div>
+                    
+                    <!-- Record Blood Usage Form -->
+                    <div class="p-4 bg-secondary rounded-lg shadow">
+                        <h3 class="text-xl font-medium text-primary mb-4">Record Blood Usage</h3>
+                        <form id="blood-usage-form" class="space-y-4">
+                            <input type="number" id="blood-usage-patient-id" name="patient-id" placeholder="Patient ID" required min="1" class="w-full p-2 border border-gray-300 rounded-md">
+                            <select id="blood-usage-blood-group" name="blood-group" required class="w-full p-2 border border-gray-300 rounded-md">
+                                <option value="" disabled selected>Select Blood Group</option>
+                                <option value="A+">A+</option><option value="A-">A-</option>
+                                <option value="B+">B+</option><option value="B-">B-</option>
+                                <option value="AB+">AB+</option><option value="AB-">AB-</option>
+                                <option value="O+">O+</option><option value="O-">O-</option>
+                            </select>
+                            <select id="blood-usage-component" name="component" required class="w-full p-2 border border-gray-300 rounded-md">
+                                <option value="" disabled selected>Select Component</option>
+                                <option value="Whole">Whole Blood</option>
+                                <option value="Platelets">Platelets</option>
+                                <option value="Plasma">Plasma</option>
+                            </select>
+                            <input type="number" id="blood-usage-units" name="units" placeholder="Units Used (e.g., 1)" required min="1" class="w-full p-2 border border-gray-300 rounded-md">
+                            <button type="submit" class="w-full bg-primary text-white p-2 rounded-md font-semibold hover:bg-primary/90 transition duration-150 shadow-md">Record Usage</button>
+                        </form>
+                    </div>
+
+                    <!-- Record Organ Donation Form -->
+                    <div class="p-4 bg-blue-100 rounded-lg shadow">
+                        <h3 class="text-xl font-medium text-accent mb-4">Record Organ Donation</h3>
+                        <form id="organ-donation-form" class="space-y-4">
+                            <input type="number" id="organ-donation-donor-id" placeholder="Donor ID" required min="1" class="w-full p-2 border border-gray-300 rounded-md">
+                            <input type="text" id="organ-name-donate" placeholder="Organ Name (e.g., Kidney)" required class="w-full p-2 border border-gray-300 rounded-md">
+                            <button type="submit" class="w-full bg-accent text-white p-2 rounded-md font-semibold hover:bg-accent/90 transition duration-150 shadow-md">Record Organ Donation</button>
+                        </form>
+                    </div>
+                    
+                    <!-- Record Organ Usage Form -->
+                    <div class="p-4 bg-blue-100 rounded-lg shadow">
+                        <h3 class="text-xl font-medium text-accent mb-4">Record Organ Usage</h3>
+                        <form id="organ-usage-form" class="space-y-4">
+                            <input type="number" id="organ-usage-patient-id" name="organ-usage-patient-id" placeholder="Patient ID" required min="1" class="w-full p-2 border border-gray-300 rounded-md">
+                            <input type="text" id="organ-name-use" name="organ-name" placeholder="Organ Name (e.g., Kidney)" required class="w-full p-2 border border-gray-300 rounded-md">
+                            <button type="submit" class="w-full bg-accent text-white p-2 rounded-md font-semibold hover:bg-accent/90 transition duration-150 shadow-md">Record Usage</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+        
+    </div>
+
+    <script>
+        // Utility function to display notifications
+        function showNotification(message, isError = false) {
+            const area = document.getElementById('notification-area');
+            const color = isError ? 'bg-red-500' : 'bg-green-500';
+            const icon = isError ? 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z' : 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z';
+
+            const notification = document.createElement('div');
+            notification.className = `p-4 max-w-sm rounded-lg shadow-xl text-white ${color} flex items-center space-x-3 transition-all duration-300 ease-in-out transform translate-x-0 opacity-100`;
+            notification.innerHTML = `
+                <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${icon}" />
+                </svg>
+                <p class="text-sm font-medium">${message}</p>
+            `;
+
+            area.appendChild(notification);
+
+            // Auto-dismiss after 5 seconds
+            setTimeout(() => {
+                notification.classList.remove('opacity-100', 'translate-x-0');
+                notification.classList.add('opacity-0', 'translate-x-full');
+                notification.addEventListener('transitionend', () => notification.remove());
+            }, 5000);
+        }
+
+        // Utility function for API calls
+        async function apiFetch(url, method = 'GET', body = null) {
+            try {
+                const options = {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                };
+                if (body) {
+                    options.body = JSON.stringify(body);
+                }
+
+                const response = await fetch(url, options);
+                const result = await response.json();
+
+                if (!response.ok) {
+                    showNotification(`Operation failed: ${result.error || 'Unknown error'}`, true);
+                    return null;
+                }
+
+                return result;
+            } catch (error) {
+                showNotification(`Network error: ${error.message}`, true);
+                return null;
+            }
+        }
+
+        // --- Data Fetching Functions ---
+
+        async function fetchStockData() {
+            const stockData = await apiFetch('/api/stock');
+            if (stockData) {
+                renderBloodStock(stockData.blood_stock);
+                renderOrganStock(stockData.organ_stock);
+            }
+        }
+        
+        async function fetchDonors() {
+            const donors = await apiFetch('/api/donors');
+            if (donors) {
+                renderDonors(donors);
+            }
+        }
+
+        async function fetchPatients() {
+            // This fetch now targets the corrected backend endpoint
+            const patients = await apiFetch('/api/patients');
+            if (patients) {
+                renderPatients(patients);
+            }
+        }
+
+        // --- Rendering Functions ---
+        
+        function renderBloodStock(stock) {
+            const container = document.getElementById('blood-stock-table');
+            if (!stock || stock.length === 0) {
+                container.innerHTML = '<p class="p-4 text-gray-500">No blood stock recorded.</p>';
+                return;
+            }
+
+            let html = '<table class="data-table">';
+            html += '<thead><tr><th>Blood Group</th><th>Component</th><th>Units Available</th><th>Last Updated</th></tr></thead><tbody>';
+            
+            stock.forEach(item => {
+                const isCritical = item.units_available < 5;
+                const rowClass = isCritical ? 'bg-red-50 text-red-800 font-semibold' : 'text-gray-700';
+                const date = item.last_updated ? new Date(item.last_updated).toLocaleString() : 'N/A';
+                
+                html += `<tr class="${rowClass}">
+                    <td>${item.blood_group}</td>
+                    <td>${item.component}</td>
+                    <td>${item.units_available} ${isCritical ? ' (CRITICAL)' : ''}</td>
+                    <td>${date}</td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function renderOrganStock(stock) {
+            const container = document.getElementById('organ-stock-table');
+            if (!stock || stock.length === 0) {
+                container.innerHTML = '<p class="p-4 text-gray-500">No organ stock recorded.</p>';
+                return;
+            }
+
+            let html = '<table class="data-table">';
+            html += '<thead><tr><th>Organ Name</th><th>Units Available</th><th>Last Updated</th></tr></thead><tbody>';
+            
+            stock.forEach(item => {
+                const date = item.last_updated ? new Date(item.last_updated).toLocaleString() : 'N/A';
+                
+                html += `<tr>
+                    <td>${item.organ_name}</td>
+                    <td>${item.units_available}</td>
+                    <td>${date}</td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function renderDonors(donors) {
+            const container = document.getElementById('donors-list');
+            if (!donors || donors.length === 0) {
+                container.innerHTML = '<p class="p-4 text-gray-500">No donors registered.</p>';
+                return;
+            }
+
+            let html = '<table class="data-table">';
+            html += '<thead><tr><th>ID</th><th>Name</th><th>Blood Group</th><th>Contact</th><th>Organ Donor</th></tr></thead><tbody>';
+            
+            donors.forEach(donor => {
+                const organStatus = donor.is_organ_donor === 1 ? '<span class="text-accent font-semibold">Yes</span>' : 'No';
+                html += `<tr>
+                    <td>${donor.donor_id}</td>
+                    <td>${donor.name}</td>
+                    <td>${donor.blood_group}</td>
+                    <td>${donor.contact_number || 'N/A'}</td>
+                    <td>${organStatus}</td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function renderPatients(patients) {
+            const container = document.getElementById('patients-list');
+            if (!patients || patients.length === 0) {
+                container.innerHTML = '<p class="p-4 text-gray-500">No patients registered.</p>';
+                return;
+            }
+
+            let html = '<table class="data-table">';
+            html += '<thead><tr><th>ID</th><th>Name</th><th>Blood Group</th><th>Resource Needed</th><th>Hospital</th><th>Urgent</th></tr></thead><tbody>';
+            
+            patients.forEach(patient => {
+                const urgency = patient.is_urgent === 1 ? '<span class="text-red-500 font-semibold">YES</span>' : 'No';
+                html += `<tr>
+                    <td>${patient.patient_id}</td>
+                    <td>${patient.name}</td>
+                    <td>${patient.blood_group}</td>
+                    <td>${patient.resource_needed}</td>
+                    <td>${patient.hospital}</td>
+                    <td>${urgency}</td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        // --- Setup Functions ---
+        
+        function setupTabNavigation() {
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.addEventListener('click', () => {
+                    const tab = button.getAttribute('data-tab');
+                    
+                    // Deactivate all buttons and content
+                    document.querySelectorAll('.tab-button').forEach(btn => {
+                        btn.classList.remove('active', 'text-primary', 'border-primary', 'bg-white');
+                        btn.classList.add('text-gray-600', 'border-transparent', 'hover:border-gray-300', 'hover:text-gray-800');
+                    });
+                    document.querySelectorAll('.tab-content').forEach(content => {
+                        content.classList.remove('active');
+                    });
+
+                    // Activate selected button and content
+                    button.classList.add('active', 'text-primary', 'border-primary', 'bg-white');
+                    button.classList.remove('text-gray-600', 'border-transparent', 'hover:border-gray-300', 'hover:text-gray-800');
+                    document.getElementById(`${tab}-content`).classList.add('active');
+                });
+            });
+        }
+
+        function setupFormListeners() {
+            // Donor Registration Submission
+            document.getElementById('donor-registration-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const form = e.target;
+                
+                const data = {
+                    name: form.elements[0].value.trim(),
+                    blood_group: form.elements[1].value,
+                    contact_number: form.elements[2].value.trim(),
+                    is_organ_donor: form.elements[3].checked
+                };
+
+                if (!data.name || !data.blood_group) {
+                    showNotification("Donor Name and Blood Group are required.", true);
+                    return;
+                }
+
+                const result = await apiFetch('/api/donors/register', 'POST', data);
+                if (result) {
+                    showNotification(result.message);
+                    form.reset();
+                    fetchDonors(); // Refresh donor list
+                }
+            });
+
+            // Patient Registration Submission
+            document.getElementById('patient-registration-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const form = e.target;
+                
+                const data = {
+                    name: form.elements['patient-name'].value.trim(),
+                    blood_group: form.elements['patient-blood-group'].value,
+                    hospital: form.elements['patient-hospital'].value.trim(),
+                    contact_number: form.elements['patient-contact'].value.trim(),
+                    resource_needed: form.elements['resource-needed'].value.trim(),
+                    is_urgent: form.elements['is-urgent'].checked
+                };
+                
+                if (!data.name || !data.blood_group || !data.hospital || !data.resource_needed) {
+                    showNotification("All patient fields (Name, Blood Group, Hospital, Resource Needed) are required.", true);
+                    return;
+                }
+
+                const result = await apiFetch('/api/patients', 'POST', data);
+                if (result) {
+                    showNotification(result.message);
+                    form.reset();
+                    fetchPatients(); // Refresh patient list
+                }
+            });
+
+            // Record Blood Donation Submission (Note: Donor interval check is now removed from the system)
+            document.getElementById('blood-donation-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const form = e.target;
+                
+                const data = {
+                    donor_id: parseInt(form.elements[0].value),
+                    blood_group: form.elements[1].value,
+                    component: form.elements[2].value,
+                    units: parseInt(form.elements[3].value),
+                };
+
+                if (isNaN(data.donor_id) || isNaN(data.units) || data.donor_id <= 0 || data.units <= 0 || !data.blood_group || !data.component) {
+                    showNotification("Invalid input for Blood Donation. Check Donor ID, Units, Blood Group, and Component.", true);
+                    return;
+                }
+
+                const result = await apiFetch('/api/donors/donate', 'POST', data);
+                if (result) {
+                    showNotification(result.message);
+                    form.reset();
+                    fetchStockData(); // Refresh stock list
+                }
+            });
+
+            // Record Blood Usage
+            document.getElementById('blood-usage-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const form = e.target;
+                
+                const data = {
+                    patient_id: parseInt(form.elements['blood-usage-patient-id'].value),
+                    blood_group: form.elements['blood-usage-blood-group'].value,
+                    component: form.elements['blood-usage-component'].value,
+                    units: parseInt(form.elements['blood-usage-units'].value),
+                };
+
+                if (isNaN(data.patient_id) || isNaN(data.units) || data.patient_id <= 0 || data.units <= 0 || !data.blood_group || !data.component) {
+                    showNotification("Invalid input for Blood Usage. Check Patient ID, Units, Blood Group, and Component.", true);
+                    return;
+                }
+
+                const result = await apiFetch('/api/blood/use', 'POST', data);
+                if (result) {
+                    showNotification(result.message);
+                    form.reset();
+                    fetchStockData(); // Refresh stock list
+                }
+            });
+
+            // Record Organ Donation
+            document.getElementById('organ-donation-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const form = e.target;
+                
+                const data = {
+                    donor_id: parseInt(form.elements[0].value),
+                    organ_name: form.elements[1].value.trim(),
+                };
+
+                if (isNaN(data.donor_id) || data.donor_id <= 0 || !data.organ_name) {
+                    showNotification("Invalid Donor ID or missing Organ Name.", true);
+                    return;
+                }
+
+                const result = await apiFetch('/api/organ/donate', 'POST', data);
+                if (result) {
+                    showNotification(result.message);
+                    form.reset();
+                    fetchStockData(); // Refresh stock list
+                }
+            });
+
+            // Record Organ Usage
+            document.getElementById('organ-usage-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const form = e.target;
+                
+                const data = {
+                    patient_id: parseInt(form.elements['organ-usage-patient-id'].value),
+                    organ_name: form.elements['organ-name'].value.trim(),
+                };
+
+                if (isNaN(data.patient_id) || data.patient_id <= 0 || !data.organ_name) {
+                    showNotification("Invalid Patient ID or missing Organ Name.", true);
+                    return;
+                }
+
+                const result = await apiFetch('/api/organ/use', 'POST', data);
+                if (result) {
+                    showNotification(result.message);
+                    form.reset();
+                    fetchStockData(); // Refresh stock list
+                }
+            });
+
+        }
+
+        // --- Initialization ---\
+        window.onload = () => {
+            setupTabNavigation();
+            setupFormListeners();
+            // Initial fetch and view setup
+            fetchStockData();
+            fetchDonors();
+            fetchPatients();
+        };
+
+    </script>
+</body>
+</html>
