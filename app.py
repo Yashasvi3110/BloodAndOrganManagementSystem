@@ -109,12 +109,18 @@ def delete_donor(donor_id):
         conn = get_db_connection()
         cursor = conn.cursor()
 
+        # Remove dependent logs first to avoid FK constraint errors (and to preserve referential integrity)
+        # Depending on retention policy you may instead archive these rows.
+        cursor.execute("DELETE FROM BloodDonationLog WHERE donor_id = :id", {'id': donor_id})
+        cursor.execute("DELETE FROM OrganDonationLog WHERE donor_id = :id", {'id': donor_id})
+
+        # Now delete the donor
         cursor.execute("DELETE FROM Donor WHERE donor_id = :id", {'id': donor_id})
         if cursor.rowcount == 0:
             return jsonify({"error": f"Donor ID {donor_id} not found."}), 404
 
         conn.commit()
-        return jsonify({"message": f"Donor ID {donor_id} deleted successfully."})
+        return jsonify({"message": f"Donor ID {donor_id} and related donation logs deleted successfully."})
 
     except ConnectionError:
         return jsonify({"error": "Database connection failed."}), 500
